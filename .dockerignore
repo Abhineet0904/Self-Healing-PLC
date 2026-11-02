@@ -1,0 +1,11 @@
+# The scripts/ folder (modbus_write_coil.py, start-pinggy-tcp.sh) is
+# attacker/operator tooling meant to run on a machine you control during a
+# live demo — it is not part of the deployed OT simulator and is never
+# invoked by app.py. Keeping it out of the Docker image is just hygiene;
+# nothing in the app calls it, so its presence/absence has no effect on
+# how the service behaves.
+screenshots/
+scripts/
+.git/
+__pycache__/
+*.pyc

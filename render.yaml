@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: self-Healing-plc
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/status
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: MODBUS_PORT
+        value: 5020
