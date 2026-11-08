@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Self Healing PLC — Reactor Coolant Loop Logs</title>
+<style>
+  body{font:16px system-ui;background:#0b1220;color:#e5edf8;margin:0}
+  main{max-width:1050px;margin:auto;padding:22px}
+  a{color:#93c5fd}
+  .card{background:#172235;padding:18px;border:1px solid #334155;border-radius:12px;margin:14px 0}
+  .entry{border-bottom:1px solid #334155;padding:10px 0}
+  .muted{color:#a8b6cc}
+  .kind{font-weight:700}
+  .kind-ATTACK{color:#f87171}       /* red */
+  .entry-ATTACK{color:#f87171}
+  .kind-ANOMALY{color:#fb923c}      /* orange */
+  .entry-ANOMALY{color:#fb923c}
+  .kind-RECOVERY{color:#4ade80}     /* green */
+  .entry-RECOVERY{color:#4ade80}
+  .kind-default{color:#93c5fd}
+</style>
+</head>
+<body>
+<main>
+  <h1>Reactor coolant loop — events & anomalies</h1>
+  <p class="muted">Reactor coolant-loop simulation only.</p>
+  <p><a href="/nuclearplant">← Reactor dashboard</a> &nbsp;·&nbsp; <a href="/electricgrid">Electric grid</a> &nbsp;·&nbsp; <a href="/electricgrid/logs">Electric grid logs</a></p>
+  <section class="card">
+    <h2>Anomalies / attack / recovery</h2>
+    <div id="anomalies">Loading…</div>
+  </section>
+  <section class="card">
+    <h2>All events</h2>
+    <div id="events">Loading…</div>
+  </section>
+  <p class="muted">Logs are in-memory and may reset when the container restarts or sleeps.</p>
+</main>
+<script>
+const COLORED = new Set(['ATTACK','ANOMALY','RECOVERY']);
+
+function render(items){
+  return items.map(e => {
+    const cls = COLORED.has(e.kind) ? `entry-${e.kind}` : '';
+    const kindCls = COLORED.has(e.kind) ? `kind-${e.kind}` : 'kind-default';
+    return `<div class="entry ${cls}"><span class="kind ${kindCls}">${e.kind}</span> · ${e.time}<br>${e.message}</div>`;
+  }).join('') || 'No events recorded.';
+}
+
+async function load(){
+  let r = await (await fetch('/api/nuclearplant/logs')).json();
+  document.getElementById('anomalies').innerHTML = render(r.anomalies);
+  document.getElementById('events').innerHTML = render(r.events);
+}
+load();
+setInterval(load, 2500);
+</script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Self Healing PLC - Electric Grid</title>
+<style>
+  body{font:16px system-ui;margin:0;background:#0b1220;color:#e5edf8}
+  header,main{max-width:1050px;margin:auto;padding:22px}
+  header{border-bottom:1px solid #334155}
+  nav a{color:#93c5fd;margin-right:18px}
+  .enabled{color:#4ade80;font-weight:700}
+  .disabled{color:#f87171;font-weight:700}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+  .card{background:#172235;padding:18px;border:1px solid #334155;border-radius:12px}
+  .value{font-size:2rem;font-weight:700}
+  .muted{color:#a8b6cc}
+  button{padding:10px 14px;margin:4px;border:0;border-radius:8px;cursor:pointer;font-weight:600}
+  .primary{background:#38bdf8}
+  .danger{background:#fb7185}
+  .ok{color:#86efac}
+  .bad{color:#fca5a5}
+  footer{color:#94a3b8;margin-top:28px;font-size:.9rem}
+
+  /* --- banner --- */
+  #banner{text-align:center;font-weight:700;font-size:1.1rem;padding:10px;border-radius:10px;margin-bottom:12px;
+          background:#1e293b;color:#93c5fd;border:1px solid #334155;transition:all .3s}
+  #banner.attack{background:#3f1d1d;color:#fca5a5;border-color:#7f1d1d;animation:pulseRed 1.1s infinite}
+  #banner.heal{background:#3a2e10;color:#fde68a;border-color:#92400e}
+  #banner.restored{background:#14301f;color:#86efac;border-color:#14532d}
+  @keyframes pulseRed{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.45)}50%{box-shadow:0 0 0 10px rgba(239,68,68,0)}}
+
+  /* --- single-line diagram --- */
+  svg{width:100%;height:auto;display:block}
+  .node-label{fill:#e5edf8;font:12px system-ui;text-anchor:middle}
+  .sub-label{fill:#8ea0bd;font:10px system-ui;text-anchor:middle}
+  .tiny-label{fill:#8ea0bd;font:9px system-ui;text-anchor:middle}
+
+  .tower{stroke:#64748b;stroke-width:2;fill:none}
+  .bus{stroke:#64748b;stroke-width:6;stroke-linecap:round}
+  .tick{stroke:#475569;stroke-width:2}
+  .ground{stroke:#475569;stroke-width:2}
+
+  .plc-box{fill:#172235;stroke:#334155;stroke-width:1.5;transition:all .3s}
+  .plc-box.active{fill:#0f2a1c;stroke:#22c55e}
+  .plc-box.standby{fill:#172235;stroke:#334155}
+  .ctrl-line{stroke:#334155;stroke-width:1.5;stroke-dasharray:3 3;transition:stroke .3s}
+  .ctrl-line.active{stroke:#22c55e;stroke-dasharray:4 2}
+
+  .relay-box{fill:#172235;stroke:#334155;stroke-width:1.5;transition:all .3s}
+  .relay-box.clear{stroke:#22c55e;fill:#0f2a1c}
+  .relay-box.blocked{stroke:#ef4444;fill:#3f1d1d}
+  .relay-label{fill:#e5edf8;font:bold 10px system-ui;text-anchor:middle}
+
+  .meter{fill:#172235;stroke:#334155;stroke-width:1.5}
+  .meter-text{fill:#93c5fd;font:bold 10px system-ui;text-anchor:middle}
+  .tap-line{stroke:#475569;stroke-width:1;stroke-dasharray:2 2}
+
+  .line{stroke:#334155;stroke-width:4;fill:none;transition:stroke .3s}
+  .line.flow-ok{stroke:#38bdf8;stroke-dasharray:8 6;animation:flow 1s linear infinite}
+  .line.flow-degraded{stroke:#f59e0b;stroke-dasharray:4 6;animation:flow 1.6s linear infinite}
+  .line.flow-dead{stroke:#475569;stroke-dasharray:3 6;animation:none}
+  @keyframes flow{to{stroke-dashoffset:-14}}
+
+  .breaker-dot{fill:#1e293b;stroke:#64748b;stroke-width:1.5}
+  .breaker-closed{stroke:#22c55e;stroke-width:4}
+  .breaker-open{stroke:#ef4444;stroke-width:4}
+  .breaker-x{stroke:#ef4444;stroke-width:2.5;opacity:0}
+  .breaker-x.show{opacity:1}
+
+  .xfmr{fill:none;stroke:#64748b;stroke-width:2}
+  .gen-circle{fill:#172235;stroke:#64748b;stroke-width:2;transition:all .3s}
+  .gen-circle.engaged{stroke:#f59e0b}
+  .gen-circle.engaged-ok{stroke:#38bdf8}
+
+  .motor-circle{fill:#172235;stroke:#64748b;stroke-width:2;transition:all .3s}
+  .load-box{transition:all .3s}
+  .load-box.down{filter:grayscale(1) brightness(.55)}
+  .load-stopped-label{opacity:0;transition:opacity .3s;fill:#fca5a5;font:bold 13px system-ui;text-anchor:middle}
+  .load-stopped-label.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <h1>Self Healing PLC - Electric Grid</h1>
+  <p class="muted">Synthetic electrical feeder • Modbus TCP + HTTPS control • Self-healing recovery experiment</p>
+  <nav><a href="/nuclearplant">Reactor coolant loop</a><a href="/electricgrid/logs">Events & anomalies</a></nav>
+</header>
+<main>
+
+  <section class="card">
+    <div id="banner">Loading…</div>
+
+    <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg">
+      <!-- ============ SCADA / control layer ============ -->
+      <line class="ctrl-line" x1="255" y1="26" x2="400" y2="26"/>
+      <text x="327" y="18" class="tiny-label">peer trust &amp; status exchange</text>
+
+      <rect id="plcA" class="plc-box" x="165" y="8" width="90" height="36" rx="7"/>
+      <text x="210" y="24" class="node-label">PLC-A</text>
+      <text id="plcALabel" x="210" y="38" class="tiny-label">primary</text>
+
+      <rect id="plcB" class="plc-box" x="400" y="8" width="90" height="36" rx="7"/>
+      <text x="445" y="24" class="node-label">PLC-B</text>
+      <text id="plcBLabel" x="445" y="38" class="tiny-label">peer / replica</text>
+
+      <line id="ctrlLineA" class="ctrl-line" x1="210" y1="44" x2="205" y2="129"/>
+      <line id="ctrlLineB" class="ctrl-line" x1="445" y1="44" x2="340" y2="169"/>
+
+      <!-- ============ sync-check relay (ANSI device 25) ============ -->
+      <rect id="syncRelay" class="relay-box" x="165" y="128" width="80" height="28" rx="4"/>
+      <text x="205" y="140" class="relay-label">25</text>
+      <text id="syncRelayLabel" x="205" y="151" class="tiny-label">SYNC-CHECK</text>
+      <line class="tap-line" x1="205" y1="156" x2="205" y2="169"/>
+
+      <!-- ============ transmission tower (grid) ============ -->
+      <path class="tower" d="M60,108 L38,230 M60,108 L82,230 M44,150 L76,150 M48,182 L72,182 M53,205 L67,205"/>
+      <text x="60" y="248" class="node-label">GRID</text>
+      <text x="60" y="261" class="sub-label">bulk tie</text>
+      <line id="lineGridBreaker" class="line" x1="85" y1="170" x2="180" y2="170"/>
+
+      <!-- ============ feeder breaker ============ -->
+      <circle class="breaker-dot" cx="180" cy="170" r="4"/>
+      <circle class="breaker-dot" cx="230" cy="170" r="4"/>
+      <line id="breakerLine" class="line breaker-closed" x1="185" y1="170" x2="225" y2="170"/>
+      <line class="breaker-x" id="breakerX1" x1="197" y1="160" x2="213" y2="180"/>
+      <line class="breaker-x" id="breakerX2" x1="213" y1="160" x2="197" y2="180"/>
+      <text x="205" y="190" class="tiny-label">feeder breaker (coil 0)</text>
+
+      <!-- ============ instrument meters on the bus ============ -->
+      <line class="tap-line" x1="270" y1="146" x2="270" y2="165"/>
+      <circle class="meter" cx="270" cy="128" r="16"/>
+      <text x="270" y="124" class="tiny-label">Hz</text>
+      <text id="meterFreq" x="270" y="135" class="meter-text">--</text>
+
+      <line class="tap-line" x1="305" y1="146" x2="305" y2="165"/>
+      <circle class="meter" cx="305" cy="128" r="16"/>
+      <text x="305" y="124" class="tiny-label">pu</text>
+      <text id="meterVolt" x="305" y="135" class="meter-text">--</text>
+
+      <!-- ============ bus bar ============ -->
+      <line class="bus" x1="230" y1="170" x2="610" y2="170"/>
+      <line class="tick" x1="340" y1="164" x2="340" y2="176"/>
+      <line class="tick" x1="610" y1="164" x2="610" y2="176"/>
+      <text x="420" y="187" class="tiny-label">11 kV bus (synthetic)</text>
+
+      <!-- ground symbol -->
+      <line class="ground" x1="250" y1="170" x2="250" y2="180"/>
+      <line class="ground" x1="242" y1="180" x2="258" y2="180"/>
+      <line class="ground" x1="245" y1="184" x2="255" y2="184"/>
+      <line class="ground" x1="247.5" y1="188" x2="252.5" y2="188"/>
+
+      <!-- ============ backup generator branch ============ -->
+      <line id="lineGenBus" class="line" x1="340" y1="170" x2="340" y2="222"/>
+      <circle id="genCircle" class="gen-circle" cx="340" cy="248" r="26"/>
+      <text x="340" y="254" class="node-label">G</text>
+      <text x="340" y="286" class="node-label">BACKUP GEN</text>
+      <text id="genLabel" x="340" y="299" class="tiny-label">standby</text>
+
+      <!-- ============ step-down transformer + load feeder ============ -->
+      <line id="lineBusLoad" class="line" x1="610" y1="170" x2="700" y2="170"/>
+      <circle class="xfmr" cx="632" cy="170" r="13"/>
+      <circle class="xfmr" cx="652" cy="170" r="13"/>
+      <text x="642" y="150" class="tiny-label">step-down</text>
+
+      <g id="loadGroup" class="load-box">
+        <circle class="motor-circle" cx="740" cy="170" r="22"/>
+        <text x="740" y="176" class="node-label">M</text>
+        <path d="M700,125 L700,108 L725,92 L750,108 L780,108 L780,125 Z" fill="#172235" stroke="#334155" stroke-width="1.5"/>
+        <text x="740" y="119" class="tiny-label">PROCESS AREA</text>
+      </g>
+      <text id="loadStopped" class="load-stopped-label" x="740" y="210">STOPPED</text>
+      <text x="740" y="225" class="sub-label">physical plant</text>
+    </svg>
+
+    <p class="muted" style="margin-top:6px">PLC-A / PLC-B mirror the paper's architecture (Fig. 1): a primary and peer controller monitoring one feeder breaker, with an independent backup generation path and a sync-check interlock (ANSI device 25) supervising any reclose.</p>
+  </section>
+
+  <div class="grid" style="margin-top:14px">
+    <section class="card"><div class="muted">Grid frequency</div><div class="value" id="freq">--</div><div class="muted">Nominal 50.00 Hz</div></section>
+    <section class="card"><div class="muted">Bus voltage</div><div class="value" id="volt">--</div><div class="muted">Per-unit voltage</div></section>
+    <section class="card"><div class="muted">Feeder breaker</div><div class="value" id="breaker">--</div><div class="muted">Modbus coil 0</div></section>
+    <section class="card"><div class="muted">Control authority</div><div class="value" style="font-size:1.4rem" id="controller">--</div><div class="muted">Synthetic process only</div></section>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <h2>Self-healing</h2>
+    <p id="healing">Loading…</p>
+    <button class="primary" onclick="toggle(true)">Enable self-healing</button>
+    <button class="danger" onclick="toggle(false)">Disable self-healing</button>
+    <button onclick="resetProcess()">Reset process (manual restart)</button>
+    <p class="muted">When enabled, a trusted peer brings validated backup generation online and the breaker only recloses once the sync-check relay is satisfied — standing in for the paper's detection → isolation → validated recovery → reintegration lifecycle. When disabled, the feeder stays islanded until an operator forces a manual restart.</p>
+  </section>
+
+  <footer>Training lab only. All values are synthetic; never connect to real OT equipment. See <a href="/electricgrid/logs" style="color:#93c5fd">Events &amp; anomalies</a> for the full log.</footer>
+</main>
+<script>
+async function refresh(){
+  try{
+    let s = await (await fetch('/api/status')).json();
+
+    document.getElementById('freq').textContent = s.frequency_hz.toFixed(2) + ' Hz';
+    document.getElementById('volt').textContent = s.voltage_pu.toFixed(2) + ' pu';
+    document.getElementById('breaker').textContent = s.breaker_closed ? 'CLOSED' : 'OPEN';
+    document.getElementById('breaker').className = 'value ' + (s.breaker_closed ? 'ok' : 'bad');
+    document.getElementById('controller').textContent = s.active_controller;
+    document.getElementById('healing').innerHTML = 'Self-healing is ' +
+      (s.self_healing ? '<span class="enabled">ENABLED</span>' : '<span class="disabled">DISABLED</span>');
+
+    updateDiagram(s);
+  }catch(e){}
+}
+
+function updateDiagram(s){
+  const attacked   = !s.breaker_closed;
+  const healing    = s.self_healing;
+  const recovering = attacked && healing;
+  const justRecovered = s.breaker_closed && s.last_recovery &&
+                         (Date.now() - new Date(s.last_recovery).getTime() < 6000);
+  const syncOk = Math.abs(s.frequency_hz - 50.0) <= 0.25 && Math.abs(s.voltage_pu - 1.0) <= 0.04;
+
+  const banner = document.getElementById('banner');
+  const breakerLine = document.getElementById('breakerLine');
+  const x1 = document.getElementById('breakerX1'), x2 = document.getElementById('breakerX2');
+  const lineGB = document.getElementById('lineGridBreaker');
+  const lineBL = document.getElementById('lineBusLoad');
+  const lineGen = document.getElementById('lineGenBus');
+  const genLabel = document.getElementById('genLabel');
+  const genCircle = document.getElementById('genCircle');
+  const loadGroup = document.getElementById('loadGroup');
+  const loadStopped = document.getElementById('loadStopped');
+  const plcA = document.getElementById('plcA'), plcB = document.getElementById('plcB');
+  const plcALabel = document.getElementById('plcALabel'), plcBLabel = document.getElementById('plcBLabel');
+  const ctrlLineA = document.getElementById('ctrlLineA'), ctrlLineB = document.getElementById('ctrlLineB');
+  const syncRelay = document.getElementById('syncRelay'), syncRelayLabel = document.getElementById('syncRelayLabel');
+  const meterFreq = document.getElementById('meterFreq'), meterVolt = document.getElementById('meterVolt');
+
+  meterFreq.textContent = s.frequency_hz.toFixed(1);
+  meterVolt.textContent = s.voltage_pu.toFixed(2);
+
+  // breaker visual
+  breakerLine.setAttribute('class', 'line ' + (s.breaker_closed ? 'breaker-closed' : 'breaker-open'));
+  x1.classList.toggle('show', attacked);
+  x2.classList.toggle('show', attacked);
+
+  // sync-check relay
+  if (s.breaker_closed){
+    syncRelay.setAttribute('class', 'relay-box clear');
+    syncRelayLabel.textContent = 'SYNC-CHECK OK';
+  } else if (syncOk){
+    syncRelay.setAttribute('class', 'relay-box clear');
+    syncRelayLabel.textContent = 'CLEAR TO CLOSE';
+  } else {
+    syncRelay.setAttribute('class', 'relay-box blocked');
+    syncRelayLabel.textContent = 'BLOCKING CLOSE';
+  }
+
+  // main grid power path
+  [lineGB, lineBL].forEach(l => {
+    l.setAttribute('class', 'line ' + (s.breaker_closed ? 'flow-ok' : 'flow-dead'));
+  });
+
+  // backup generator path
+  if (attacked){
+    lineGen.setAttribute('class', 'line ' + (healing ? 'flow-ok' : 'flow-degraded'));
+    genCircle.setAttribute('class', 'gen-circle ' + (healing ? 'engaged-ok' : 'engaged'));
+    genLabel.textContent = healing ? 'engaged — validated peer capacity' : 'engaged — undersized, insufficient alone';
+  } else {
+    lineGen.setAttribute('class', 'line flow-dead');
+    genCircle.setAttribute('class', 'gen-circle');
+    genLabel.textContent = 'standby';
+  }
+
+  // load appearance
+  loadGroup.classList.toggle('down', attacked && !healing);
+  loadStopped.classList.toggle('show', attacked && !healing);
+
+  // PLC-A / PLC-B highlight + control lines
+  const bIsActive = (s.active_controller || '').includes('PLC-B');
+  plcA.setAttribute('class', 'plc-box ' + (bIsActive ? 'standby' : 'active'));
+  plcB.setAttribute('class', 'plc-box ' + (bIsActive ? 'active' : 'standby'));
+  plcALabel.textContent = bIsActive ? 'standby' : 'primary — active';
+  plcBLabel.textContent = bIsActive ? 'recovery controller — active' : 'peer / replica';
+  ctrlLineA.setAttribute('class', 'ctrl-line ' + (bIsActive ? '' : 'active'));
+  ctrlLineB.setAttribute('class', 'ctrl-line ' + (bIsActive ? 'active' : ''));
+
+  // banner
+  banner.classList.remove('attack','heal','restored');
+  if (justRecovered){
+    banner.classList.add('restored');
+    banner.textContent = '✔ RESTORED — validated peer generation, sync-check passed, breaker reclosed autonomously';
+  } else if (recovering){
+    banner.classList.add('heal');
+    banner.textContent = '⟳ SELF-HEALING IN PROGRESS — peer controller bringing validated backup generation online, awaiting sync-check…';
+  } else if (attacked){
+    banner.classList.add('attack');
+    banner.textContent = '⚠ SERVICE DOWN — feeder breaker tripped (possible unauthorized logic/command manipulation). Manual intervention required.';
+  } else {
+    banner.textContent = '● NORMAL OPERATION — feeder breaker closed, grid-tied';
+  }
+}
+
+async function toggle(enabled){
+  await fetch('/api/self-healing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+  refresh();
+}
+async function resetProcess(){
+  await fetch('/api/reset',{method:'POST'});
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>
